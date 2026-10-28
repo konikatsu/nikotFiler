@@ -19,6 +19,10 @@ jobs:
         run: dotnet build NikotFiler.slnx -c Release
       - name: Regression checks
         run: dotnet tests/NikotFiler.Tests/bin/Release/net10.0-windows/NikotFiler.Tests.dll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nikotFiler-ui-checks
+          path: artifacts/ui-checks/*.png
       - name: Publish Windows x64
         run: dotnet publish src/NikotFiler.App -c Release -r win-x64 --self-contained true -o artifacts/nikotFiler-win-x64
       - name: Package

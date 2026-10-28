@@ -10,11 +10,15 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        for (var i = 0; i < e.Args.Length; i++)
-        {
-            if (e.Args[i] == "--data-dir" && i + 1 < e.Args.Length) DataDirectory = Path.GetFullPath(e.Args[++i]);
-            else if (e.Args[i] == "--folder" && i + 1 < e.Args.Length) InitialPath = Path.GetFullPath(e.Args[++i]);
-        }
+        ConfigureArguments(e.Args);
         new MainWindow().Show();
+    }
+    internal static void ConfigureArguments(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--data-dir" && i + 1 < args.Length) DataDirectory = Path.GetFullPath(args[++i]);
+            else if (args[i] == "--folder" && i + 1 < args.Length) InitialPath = Path.GetFullPath(args[++i]);
+        }
     }
 }

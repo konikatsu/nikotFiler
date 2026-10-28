@@ -160,7 +160,7 @@ public partial class MainWindow : Window
     private async void RefreshClick(object sender, RoutedEventArgs e) { if (!_busy) await _active.RefreshAsync(); }
     private void FilterChanged(object sender, TextChangedEventArgs e) { if (!_updating) { _active.SetFilter(FilterBox.Text); UpdateChrome(); } }
 
-    private void ApplyScale(double scale, bool save = true)
+    internal void ApplyScale(double scale, bool save = true)
     {
         var old = AppSettings.ValidScale(_settings.TextScale);
         scale = AppSettings.ValidScale(scale); _settings.TextScale = scale;

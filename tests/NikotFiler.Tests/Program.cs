@@ -1,5 +1,8 @@
 using System.IO;
 using System.Windows.Threading;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using NikotFiler.Core;
 using NikotFiler.App;
 
@@ -9,7 +12,7 @@ internal static class Program
     [STAThread]
     private static int Main()
     {
-        var root = Path.Combine(Path.GetTempPath(), "nikotFiler-tests-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP") ?? Path.GetTempPath(), "nikotFiler-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
         {
@@ -70,6 +73,7 @@ internal static class Program
             var restored = new PaneView("restored"); restored.Restore(snapshot, source);
             Check(restored.Snapshot().Paths.SequenceEqual(snapshot.Paths), "all tabs restore in order");
             pane.CancelLoads(); restored.CancelLoads();
+            RenderMainWindow(root);
             Console.WriteLine($"PASS: {_checks} checks"); return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -77,11 +81,45 @@ internal static class Program
         {
             // Only remove the unique directory created above, after checking its root.
             var full = Path.GetFullPath(root);
-            var temp = Path.GetFullPath(Path.GetTempPath());
+            var temp = Path.GetFullPath(Environment.GetEnvironmentVariable("RUNNER_TEMP") ?? Path.GetTempPath());
             if (full.StartsWith(temp, StringComparison.OrdinalIgnoreCase) && Path.GetFileName(full).StartsWith("nikotFiler-tests-")) Directory.Delete(full, true);
         }
     }
     private static void Check(bool condition, string label) { if (!condition) throw new Exception(label); _checks++; }
+    private static void RenderMainWindow(string root)
+    {
+        var sample = Path.Combine(root, "サンプル"); Directory.CreateDirectory(sample);
+        foreach (var name in new[] { "ドキュメント", "プロジェクト", "画像" }) Directory.CreateDirectory(Path.Combine(sample, name));
+        File.WriteAllText(Path.Combine(sample, "はじめに.txt"), "nikotFiler preview sample");
+        File.WriteAllText(Path.Combine(sample, "ワークメモ.md"), "# sample");
+        App.ConfigureArguments(["--data-dir", Path.Combine(root, "ui-profile"), "--folder", sample]);
+        var window = new MainWindow();
+        window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+        var content = (FrameworkElement)window.Content;
+        content.Measure(new Size(1280, 780)); content.Arrange(new Rect(0, 0, 1280, 780)); content.UpdateLayout();
+        PumpUntil(() => Descendants<PaneView>(content).All(p => p.Current is { IsLoading: false }));
+        var screenshots = Path.Combine(Environment.CurrentDirectory, "artifacts", "ui-checks"); Directory.CreateDirectory(screenshots);
+        foreach (var scale in new[] { 100, 200 })
+        {
+            window.ApplyScale(scale);
+            content.Measure(new Size(1280, 780)); content.Arrange(new Rect(0, 0, 1280, 780)); content.UpdateLayout();
+            var image = new RenderTargetBitmap(1280, 780, 96, 96, PixelFormats.Pbgra32); image.Render(content);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+            using var output = File.Create(Path.Combine(screenshots, $"nikotFiler-{scale}.png")); encoder.Save(output);
+            Check(Descendants<PaneView>(content).Count() == 2, $"both panes retained at {scale}%");
+            Check(Application.Current.Resources["TextSize"] is double size && Math.Abs(size - 14 * scale / 100d) < .01, $"global font applied at {scale}%");
+        }
+        window.Close();
+    }
+    private static IEnumerable<T> Descendants<T>(DependencyObject element) where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+        {
+            var child = VisualTreeHelper.GetChild(element, i);
+            if (child is T match) yield return match;
+            foreach (var descendant in Descendants<T>(child)) yield return descendant;
+        }
+    }
     private static void Expect<T>(Action action, string label) where T : Exception
     {
         try { action(); } catch (T) { _checks++; return; } throw new Exception(label);

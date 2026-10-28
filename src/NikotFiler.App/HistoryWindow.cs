@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using NikotFiler.Core;
 
 namespace NikotFiler.App;
@@ -21,9 +22,10 @@ public sealed class HistoryWindow : Window
     {
         if (owner is not null) Owner = owner;
         Title = "履歴から開く"; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = Brushes.White;
         Width = Math.Min(980, SystemParameters.WorkArea.Width); Height = Math.Min(640, SystemParameters.WorkArea.Height * .85);
         MinWidth = 540; MinHeight = 350; ShowInTaskbar = false;
-        var layout = new DockPanel { Margin = new Thickness(22) };
+        var layout = new DockPanel { Margin = new Thickness(22), Background = Brushes.White };
         var header = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
         header.Children.Add(new TextBlock { Text = "履歴から開く", FontWeight = FontWeights.SemiBold });
         header.Children.Add(new TextBlock { Text = "項目を選んで Enter、またはダブルクリックすると、その場所へ移動します。", TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 12) });

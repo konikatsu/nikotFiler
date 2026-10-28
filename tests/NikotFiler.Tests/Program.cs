@@ -81,7 +81,7 @@ internal static class Program
             pane.CloseCurrent();
             var last = pane.Current;
             pane.CloseCurrent();
-            Check(pane.TabCount == 1 && ReferenceEquals(pane.Current, last), "last tab stays open instead of opening home");
+            Check(last is not null && pane.TabCount == 1 && ReferenceEquals(pane.Current, last), "last tab stays open instead of opening home");
             Check(!last!.CloseButton.IsEnabled && !last.CloseMenu.IsEnabled, "last-tab close controls are disabled");
             pane.CancelLoads(); restored.CancelLoads();
             RenderMainWindow(root);

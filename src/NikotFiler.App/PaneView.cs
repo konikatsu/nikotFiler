@@ -191,8 +191,10 @@ public sealed class PaneView : Border
     private void CloseTab(FolderTab folder)
     {
         if (IsWorking || !(CanCloseTab?.Invoke() ?? TabCount > 1)) return;
+        var index = _folders.IndexOf(folder);
         folder.LoadCancellation?.Cancel(); _folders.Remove(folder); _tabs.Items.Remove(folder.Tab);
         if (_folders.Count == 0) Emptied?.Invoke(this);
+        else if (Current is null) _tabs.SelectedIndex = Math.Clamp(index, 0, _folders.Count - 1);
         RefreshCloseButtons();
         Changed?.Invoke();
     }

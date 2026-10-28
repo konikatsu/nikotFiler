@@ -439,7 +439,10 @@ public partial class MainWindow : Window
         if (_restoring) return;
         try
         {
-            _settings.Width = RestoreBounds.Width; _settings.Height = RestoreBounds.Height; _settings.Maximized = WindowState == WindowState.Maximized;
+            var bounds = RestoreBounds;
+            _settings.Width = double.IsFinite(bounds.Width) && bounds.Width > 0 ? bounds.Width : Width;
+            _settings.Height = double.IsFinite(bounds.Height) && bounds.Height > 0 ? bounds.Height : Height;
+            _settings.Maximized = WindowState == WindowState.Maximized;
             StateStore.Save(SettingsPath, _settings);
             _session.Left = _left.Snapshot(); _session.Right = _right.Snapshot(); _session.ActivePane = _active == _right ? 1 : 0;
             StateStore.Save(SessionPath, _session);

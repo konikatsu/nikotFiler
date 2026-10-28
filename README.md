@@ -20,7 +20,9 @@
 
 [Releases](https://github.com/konikatsu/nikotFiler/releases) にプレビュー版の配布ファイルを掲載します。
 
-Windows x64 用の ZIP をダウンロードして**すべて展開**し、`nikotFiler.exe` を起動します。.NET ランタイムは配布版に同梱します。
+最新の配布版は **ランタイム非同梱の Windows x64 版**です。先に [.NET Desktop Runtime 10（Windows x64）](https://dotnet.microsoft.com/ja-jp/download/dotnet/10.0) をインストールしてください。対応する .NET 10 SDK が入っている場合は追加インストール不要です。
+
+Release の `nikotFiler-0.1.0-win-x64-framework-dependent.zip` をダウンロードして**すべて展開**し、`nikotFiler.exe` を起動します。EXE と同じフォルダーの DLL・JSON も必要です。コンソール用の「.NET Runtime」だけでは WPF アプリは起動できないため、「.NET Desktop Runtime」を選んでください。
 
 配布版は未署名です。組織や PC のアプリケーション制御によって実行できない場合があります。開発環境でもこの制御によりローカルの起動確認はブロックされています。組織のポリシーや警告を無効化せず、管理者が許可した環境で使用してください。
 
@@ -72,7 +74,7 @@ dotnet run --project tests/NikotFiler.Tests -c Release
 GitHub Actions では Windows 上でビルド・回帰テスト・配布 ZIP の作成を行います。`v*` タグでプレビュー Release を作成します。
 
 ```powershell
-dotnet publish src/NikotFiler.App -c Release -r win-x64 --self-contained true -o artifacts/nikotFiler-win-x64
+dotnet publish src/NikotFiler.App -c Release -r win-x64 --self-contained false -p:UseAppHost=true -o artifacts/nikotFiler-win-x64-framework-dependent
 ```
 
 テスト時に設定を分離するには `nikotFiler.exe --data-dir <テスト用保存先> --folder <最初に開くフォルダー>` を指定できます。

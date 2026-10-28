@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType><TargetFramework>net10.0-windows</TargetFramework>
     <UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <AssemblyName>nikotFiler</AssemblyName><RootNamespace>NikotFiler.App</RootNamespace>
+    <SelfContained>false</SelfContained><UseAppHost>true</UseAppHost>
     <Version>0.1.0</Version><ApplicationManifest>app.manifest</ApplicationManifest>
     <Description>nikotFiler — シンプルで、読みやすい Windows ファイラー</Description>
   </PropertyGroup>

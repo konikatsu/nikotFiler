@@ -13,8 +13,8 @@ namespace NikotFiler.App;
 
 public partial class MainWindow : Window
 {
-    private readonly PaneView _left = new("左の画面");
-    private readonly PaneView _right = new("右の画面");
+    private PaneView _left = new("左の画面");
+    private PaneView _right = new("右の画面");
     private PaneView _active;
     private readonly AppSettings _settings;
     private readonly AppSession _session;
@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private bool _restoring = true;
     private bool _busy;
     private bool _updating;
+    private bool _historyOpening;
     private string SettingsPath => Path.Combine(App.DataDirectory, "settings.json");
     private string SessionPath => Path.Combine(App.DataDirectory, "session.json");
     private PaneView Other => ReferenceEquals(_active, _left) ? _right : _left;
@@ -47,6 +48,8 @@ public partial class MainWindow : Window
             pane.Changed += () => { UpdateChrome(); ScheduleSave(); };
             pane.OpenRequested += entry => _ = OpenAsync(entry);
             pane.ContextRequested += () => { if (pane.Current is { } tab) tab.List.ContextMenu = BuildFileMenu(); };
+            pane.CanCloseTab = () => _left.TabCount + _right.TabCount > 1;
+            pane.Emptied += CloseEmptyPane;
         }
         _saveTimer.Tick += (_, _) => { _saveTimer.Stop(); SaveState(); };
         SizeChanged += (_, _) => ScheduleSave();
@@ -58,7 +61,7 @@ public partial class MainWindow : Window
         var home = App.InitialPath ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var documents = App.InitialPath ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
         if (string.IsNullOrWhiteSpace(documents)) documents = home;
-        _left.Restore(_session.Left, home); _right.Restore(_session.Right, documents);
+        _left.Restore(_session.Left, home); _right.Restore(_session.Right, documents, allowEmpty: !_settings.TwoPanes);
         SetActive(_session.ActivePane == 1 && _settings.TwoPanes ? _right : _left);
         ApplyScale(AppSettings.ValidScale(_settings.TextScale), false);
         ApplyView(); BuildSidebar();
@@ -68,8 +71,23 @@ public partial class MainWindow : Window
 
     private void SetActive(PaneView pane)
     {
+        if (pane.TabCount == 0) return;
         if (!_settings.TwoPanes && ReferenceEquals(pane, _right)) return;
         _active = pane; _left.SetActive(pane == _left); _right.SetActive(pane == _right); UpdateChrome();
+    }
+    private void CloseEmptyPane(PaneView pane)
+    {
+        if (_restoring || pane.TabCount != 0) return;
+        if (ReferenceEquals(pane, _left))
+        {
+            // Keep the surviving controls, tabs and their selections intact.
+            (_left, _right) = (_right, _left);
+            Grid.SetColumn(_left, 0); Grid.SetColumn(_right, 2);
+            _left.SetName("左の画面"); _right.SetName("右の画面");
+        }
+        _settings.TwoPanes = false;
+        ApplyView(); SetActive(_left); ScheduleSave();
+        _left.Current?.List.Focus();
     }
     private void UpdateChrome()
     {
@@ -83,6 +101,7 @@ public partial class MainWindow : Window
             ForwardButton.IsEnabled = !_busy && _active.Current?.Forward.Count > 0;
             var count = _active.SelectedEntries.Length;
             CopyButton.IsEnabled = MoveButton.IsEnabled = !_busy && count > 0;
+            _left.RefreshCloseButtons(); _right.RefreshCloseButtons();
             Status.Text = _active.Current?.IsLoading == true ? "読み込み中…" : count > 0 ? $"{count:N0} 件を選択" : $"{_active.Current?.List.Items.Count ?? 0:N0} 項目  ·  Ctrl＋ホイールで文字サイズを変更";
             Destination.Text = _settings.TwoPanes ? "コピー先: " + (Other == _right ? "右" : "左") + " › " + PaneView.FolderName(Other.CurrentPath) : "コピー先は実行時に選べます";
             Destination.ToolTip = _settings.TwoPanes ? Other.CurrentPath : "コピー・移動時にフォルダー選択を開きます";
@@ -125,16 +144,17 @@ public partial class MainWindow : Window
         }; Sidebar.Children.Add(add);
         Heading("この PC");
         foreach (var drive in DriveInfo.GetDrives()) Place(drive.Name, drive.RootDirectory.FullName, "\uEDA2");
-        var history = new Button { Content = "閲覧・操作履歴", Margin = new Thickness(0, 20, 0, 5) };
+        var history = new Button { Content = "閲覧・操作履歴", ToolTip = "履歴からフォルダーを開く (Ctrl+H)", Margin = new Thickness(0, 20, 0, 5) };
         history.Click += (_, _) => ShowHistory(); Sidebar.Children.Add(history);
     }
 
     private async Task NavigateAsync(string path)
     {
         if (_busy) return;
-        await _active.NavigateAsync(path);
-        if (_active.Current?.Error.Length == 0)
-            try { _history.RecordVisit(HistoryKind.FolderVisit, _active.CurrentPath); }
+        var pane = _active;
+        await pane.NavigateAsync(path);
+        if (pane.Current?.Error.Length == 0)
+            try { _history.RecordVisit(HistoryKind.FolderVisit, pane.CurrentPath); }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status.Text = "履歴を保存できませんでした: " + ex.Message; }
         UpdateChrome();
     }
@@ -205,15 +225,21 @@ public partial class MainWindow : Window
         foreach (var two in new[] { false, true })
         {
             var item = new MenuItem { Header = two ? "左右2画面" : "1画面", IsCheckable = true, IsChecked = _settings.TwoPanes == two };
-            item.Click += (_, _) => { if (_busy) return; _settings.TwoPanes = two; ApplyView(); ScheduleSave(); }; menu.Items.Add(item);
+            item.Click += (_, _) => SetTwoPanes(two); menu.Items.Add(item);
         }
         menu.Items.Add(new Separator());
         var sidebar = new MenuItem { Header = "サイドバーを表示", IsCheckable = true, IsChecked = SidebarScroll.Visibility == Visibility.Visible };
         sidebar.Click += (_, _) => { SidebarScroll.Visibility = sidebar.IsChecked ? Visibility.Visible : Visibility.Collapsed; SidebarColumn.Width = sidebar.IsChecked ? new GridLength(192) : new GridLength(0); };
         menu.Items.Add(sidebar); OpenMenu(ViewButton, menu);
     }
+    internal void SetTwoPanes(bool two)
+    {
+        if (_busy) return;
+        _settings.TwoPanes = two; ApplyView(); ScheduleSave();
+    }
     private void ApplyView()
     {
+        if (_settings.TwoPanes && _right.TabCount == 0) _right.AddTab(_left.CurrentPath);
         _right.Visibility = Divider.Visibility = _settings.TwoPanes ? Visibility.Visible : Visibility.Collapsed;
         RightColumn.Width = _settings.TwoPanes ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         DividerColumn.Width = new GridLength(_settings.TwoPanes ? 10 : 0);
@@ -357,16 +383,25 @@ public partial class MainWindow : Window
     }
 
     private void ShowError(string title, string text) { new ActionDialog(this, title, text, "閉じる").ShowDialog(); }
-    private void ShowHistory()
+    private async void ShowHistory()
     {
+        if (_busy || _historyOpening) return;
+        _historyOpening = true;
         try
         {
-            var items = _history.ReadLatest().Take(100).Select(x => $"{x.Timestamp:MM/dd HH:mm}  {x.Kind switch { HistoryKind.FolderVisit => "閲覧", HistoryKind.FileOpen => "開く", HistoryKind.Copy => "コピー", HistoryKind.Move => "移動", HistoryKind.Rename => "名前変更", HistoryKind.Delete => "ごみ箱", _ => "フォルダー作成" }}  {x.Status switch { HistoryStatus.Failed => "失敗", HistoryStatus.Started => "要確認", _ => "" }}\n{x.SourcePath}" + (x.DestinationPath is not null ? " → " + x.DestinationPath : ""));
-            ShowError("閲覧・操作履歴（最新100件）", string.Join("\n\n", items) is { Length: > 0 } text ? text : "履歴はまだありません。");
+            var items = await Task.Run(() => _history.ReadLatest().Take(500).ToArray());
+            if (_busy || !IsVisible) return;
+            var dialog = new HistoryWindow(this, items);
+            if (dialog.ShowDialog() == true && dialog.SelectedFolder is { } folder)
+            {
+                await NavigateAsync(folder);
+                _active.Current?.List.Focus();
+            }
         }
-        catch (Exception ex) { ShowError("履歴を開けませんでした", ex.Message); }
+        catch (Exception ex) { if (IsVisible) ShowError("履歴を開けませんでした", ex.Message); }
+        finally { _historyOpening = false; }
     }
-    private void HelpClick(object sender, RoutedEventArgs e) => ShowError("nikotFiler の使い方", "フォルダーをダブルクリックして開きます。\n\n＋ / Ctrl+T　タブを追加\n× / 中クリック / Ctrl+W　タブを閉じる\nCtrl+Tab　次のタブ\nF6　左右の画面を切り替える\nCtrl+L　パスを入力\nCtrl+F　名前を絞り込む\nCtrl+C / X / V　コピー / 切り取り / 貼り付け\nF2　名前変更　　Delete　ごみ箱へ\nF5　再読込　　Alt+↑　上のフォルダー\nAlt+← / →　戻る / 進む\n\nAa / Ctrl+ホイール　文字の大きさ\nCtrl+0　文字を標準に戻す\n\nプレビュー版 0.1.0");
+    private void HelpClick(object sender, RoutedEventArgs e) => ShowError("nikotFiler の使い方", "フォルダーをダブルクリックして開きます。\n\n＋ / Ctrl+T　タブを追加\n× / 中クリック / Ctrl+W　タブを閉じる\nCtrl+Tab　次のタブ\nCtrl+H　履歴から開く\nF6　左右の画面を切り替える\nCtrl+L　パスを入力\nCtrl+F　名前を絞り込む\nCtrl+C / X / V　コピー / 切り取り / 貼り付け\nF2　名前変更　　Delete　ごみ箱へ\nF5　再読込　　Alt+↑　上のフォルダー\nAlt+← / →　戻る / 進む\n\nAa / Ctrl+ホイール　文字の大きさ\nCtrl+0　文字を標準に戻す\n\nプレビュー版 0.1.0");
 
     private async void WindowKeyDown(object sender, KeyEventArgs e)
     {
@@ -374,6 +409,7 @@ public partial class MainWindow : Window
         var ctrl = Keyboard.Modifiers == ModifierKeys.Control;
         if (ctrl && e.Key == Key.L) { Address.Focus(); Address.SelectAll(); }
         else if (ctrl && e.Key == Key.F) { FilterBox.Focus(); FilterBox.SelectAll(); }
+        else if (ctrl && e.Key == Key.H) ShowHistory();
         else if (ctrl && e.Key == Key.T) _active.AddTab(_active.CurrentPath);
         else if (ctrl && e.Key == Key.W) _active.CloseCurrent();
         else if (ctrl && e.Key == Key.Tab) _active.NextTab();

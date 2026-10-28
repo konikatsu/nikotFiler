@@ -15,12 +15,16 @@ public sealed class PaneView : Border
 {
     private readonly TabControl _tabs = new();
     private readonly TextBlock _label = new();
+    private readonly Button _newTabButton;
     private readonly List<FolderTab> _folders = [];
-    private readonly string _name;
+    private string _name;
     public event Action<PaneView>? Activated;
     public event Action? Changed;
     public event Action<FileEntry>? OpenRequested;
     public event Action? ContextRequested;
+    public event Action<PaneView>? Emptied;
+    public Func<bool>? CanCloseTab { get; set; }
+    public int TabCount => _folders.Count;
     public FolderTab? Current => _folders.FirstOrDefault(t => ReferenceEquals(t.Tab, _tabs.SelectedItem));
     public FileEntry[] SelectedEntries => Current?.List.SelectedItems.Cast<FileEntry>().ToArray() ?? [];
     public bool IsWorking { get; set; }
@@ -37,6 +41,7 @@ public sealed class PaneView : Border
         var header = new DockPanel { Margin = new Thickness(4, 8, 1, 5) };
         _label.FontWeight = FontWeights.SemiBold;
         var add = new Button { Content = "+", ToolTip = "新しいタブ (Ctrl+T)", Padding = new Thickness(9, 2, 9, 2) };
+        _newTabButton = add;
         System.Windows.Automation.AutomationProperties.SetName(add, name + "：新しいタブ");
         add.Click += (_, _) => AddTab(CurrentPath);
         DockPanel.SetDock(add, Dock.Right); header.Children.Add(add);
@@ -59,7 +64,8 @@ public sealed class PaneView : Border
         _tabs.SelectionChanged += (_, e) =>
         {
             if (!ReferenceEquals(e.Source, _tabs)) return;
-            Activated?.Invoke(this); Changed?.Invoke();
+            if (Current is not null) Activated?.Invoke(this);
+            Changed?.Invoke();
         };
         PreviewMouseDown += (_, _) => Activated?.Invoke(this);
         GotKeyboardFocus += (_, _) => Activated?.Invoke(this);
@@ -73,11 +79,27 @@ public sealed class PaneView : Border
         _label.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(active ? "#16766B" : "#74848A"));
     }
 
-    public void Restore(PaneSession? state, string fallback)
+    public void SetName(string name)
+    {
+        _name = name;
+        System.Windows.Automation.AutomationProperties.SetName(_newTabButton, name + "：新しいタブ");
+    }
+
+    public void RefreshCloseButtons()
+    {
+        var allowed = !IsWorking && (CanCloseTab?.Invoke() ?? TabCount > 1);
+        foreach (var folder in _folders)
+        {
+            folder.CloseButton.IsEnabled = allowed;
+            folder.CloseMenu.IsEnabled = allowed;
+        }
+    }
+
+    public void Restore(PaneSession? state, string fallback, bool allowEmpty = false)
     {
         foreach (var path in state?.Paths?.Where(p => !string.IsNullOrWhiteSpace(p)) ?? []) AddTab(path, false);
-        if (_folders.Count == 0) AddTab(fallback, false);
-        _tabs.SelectedIndex = Math.Clamp(state?.SelectedIndex ?? 0, 0, _folders.Count - 1);
+        if (_folders.Count == 0 && !allowEmpty) AddTab(fallback, false);
+        _tabs.SelectedIndex = _folders.Count == 0 ? -1 : Math.Clamp(state?.SelectedIndex ?? 0, 0, _folders.Count - 1);
     }
 
     public PaneSession Snapshot() => new() { Paths = _folders.Select(f => f.Path).ToList(), SelectedIndex = Math.Max(0, _tabs.SelectedIndex) };
@@ -89,12 +111,14 @@ public sealed class PaneView : Border
         var close = new Button { Content = "×", Padding = new Thickness(5, 0, 5, 0), Margin = new Thickness(7, 0, 0, 0), ToolTip = "タブを閉じる (Ctrl+W)" };
         var tabHeader = new StackPanel { Orientation = Orientation.Horizontal }; tabHeader.Children.Add(title); tabHeader.Children.Add(close);
         folder.Title = title;
+        folder.CloseButton = close;
         folder.Tab.Header = tabHeader;
         close.Click += (_, e) => { e.Handled = true; CloseTab(folder); };
         folder.Tab.PreviewMouseDown += (_, e) => { if (e.ChangedButton == MouseButton.Middle) { e.Handled = true; CloseTab(folder); } };
         var menu = new ContextMenu();
         var duplicate = new MenuItem { Header = "タブを複製" }; duplicate.Click += (_, _) => AddTab(folder.Path); menu.Items.Add(duplicate);
         var closeItem = new MenuItem { Header = "タブを閉じる" }; closeItem.Click += (_, _) => CloseTab(folder); menu.Items.Add(closeItem);
+        folder.CloseMenu = closeItem;
         folder.Tab.ContextMenu = menu;
         var list = folder.List;
         var view = new GridView();
@@ -159,15 +183,17 @@ public sealed class PaneView : Border
         folder.Tab.Content = grid; _folders.Add(folder); _tabs.Items.Add(folder.Tab);
         if (select) _tabs.SelectedItem = folder.Tab;
         _ = NavigateAsync(folder, folder.Path, false);
+        RefreshCloseButtons();
         Changed?.Invoke();
     }
 
     public void CloseCurrent() { if (Current is { } current) CloseTab(current); }
     private void CloseTab(FolderTab folder)
     {
-        if (IsWorking) return;
+        if (IsWorking || !(CanCloseTab?.Invoke() ?? TabCount > 1)) return;
         folder.LoadCancellation?.Cancel(); _folders.Remove(folder); _tabs.Items.Remove(folder.Tab);
-        if (_folders.Count == 0) AddTab(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        if (_folders.Count == 0) Emptied?.Invoke(this);
+        RefreshCloseButtons();
         Changed?.Invoke();
     }
     public void NextTab() { if (_tabs.Items.Count > 0) _tabs.SelectedIndex = (_tabs.SelectedIndex + 1) % _tabs.Items.Count; }
@@ -238,6 +264,8 @@ public sealed class FolderTab(string path)
     public string Path { get; set; } = path;
     public TabItem Tab { get; } = new();
     public TextBlock Title { get; set; } = new();
+    public Button CloseButton { get; set; } = new();
+    public MenuItem CloseMenu { get; set; } = new();
     public ListView List { get; } = new() { SelectionMode = SelectionMode.Extended };
     public TextBlock Message { get; } = new();
     public List<FileEntry> Entries { get; set; } = [];

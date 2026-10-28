@@ -3,6 +3,7 @@ using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Controls;
 using NikotFiler.Core;
 using NikotFiler.App;
 
@@ -55,11 +56,12 @@ internal static class Program
             Check(StateStore.Load<AppSettings>(statePath).TextScale == 175, "settings recover backup");
             Check(AppSettings.ValidScale(double.NaN) == 100 && AppSettings.ValidScale(999) == 250, "invalid font scale repaired");
             var list = FileEntry.ReadDirectory(source, CancellationToken.None);
+            CheckHistoryLocations(source, target, input);
             Check(list[0].IsDirectory && list.Any(x => x.Name == "こんにちは.txt"), "folders sorted first and Unicode paths work");
 
             // In-process regression: the selected files MUST be those in the actual
             // current tab, and retained controls must keep a tab's own selection.
-            var app = new App(); app.InitializeComponent();
+            var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
             var pane = new PaneView("test"); pane.AddTab(source);
             PumpUntil(() => pane.Current is { IsLoading: false });
@@ -76,6 +78,11 @@ internal static class Program
             Check(snapshot.Paths.Count == 2 && snapshot.Paths[snapshot.SelectedIndex] == source, "arbitrary tabs included in saved session");
             var restored = new PaneView("restored"); restored.Restore(snapshot, source);
             Check(restored.Snapshot().Paths.SequenceEqual(snapshot.Paths), "all tabs restore in order");
+            pane.CloseCurrent();
+            var last = pane.Current;
+            pane.CloseCurrent();
+            Check(pane.TabCount == 1 && ReferenceEquals(pane.Current, last), "last tab stays open instead of opening home");
+            Check(!last!.CloseButton.IsEnabled && !last.CloseMenu.IsEnabled, "last-tab close controls are disabled");
             pane.CancelLoads(); restored.CancelLoads();
             RenderMainWindow(root);
             Console.WriteLine($"PASS: {_checks} checks"); return 0;
@@ -90,6 +97,19 @@ internal static class Program
         }
     }
     private static void Check(bool condition, string label) { if (!condition) throw new Exception(label); _checks++; }
+    private static void CheckHistoryLocations(string source, string target, string file)
+    {
+        HistoryEntry Entry(HistoryKind kind, string path, string? destination = null, HistoryStatus status = HistoryStatus.Succeeded)
+            => new(Guid.NewGuid(), DateTimeOffset.Now, kind, status, path, destination);
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.FolderVisit, source)) == source, "folder history opens that folder");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.FileOpen, file)) == source, "file history opens containing folder");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.Copy, file, Path.Combine(target, "nested", "nested.txt"))) == Path.Combine(target, "nested"), "file operation history opens destination parent");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.Move, source, Path.Combine(target, "nested"))) == Path.Combine(target, "nested"), "folder operation history opens destination folder");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.CreateFolder, target, Path.Combine(target, "folder"))) == Path.Combine(target, "folder"), "folder creation history opens created folder");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.Delete, file)) == source, "deleted-item history opens containing folder");
+        Check(HistoryNavigation.GetFolder(Entry(HistoryKind.Copy, file, null, HistoryStatus.Failed)) == source, "failed operation history opens source location");
+        Expect<FileNotFoundException>(() => HistoryNavigation.GetFolder(Entry(HistoryKind.Move, file, Path.Combine(target, "missing"))), "missing destination is reported instead of opening wrong folder");
+    }
     private static void RenderMainWindow(string root)
     {
         var sample = Path.Combine(root, "サンプル"); Directory.CreateDirectory(sample);
@@ -113,7 +133,56 @@ internal static class Program
             Check(Descendants<PaneView>(content).Count() == 2, $"both panes retained at {scale}%");
             Check(Application.Current.Resources["TextSize"] is double size && Math.Abs(size - 14 * scale / 100d) < .01, $"global font applied at {scale}%");
         }
+        var originalPanes = Descendants<PaneView>(content).ToArray();
+        var left = originalPanes.Single(p => Grid.GetColumn(p) == 0);
+        var right = originalPanes.Single(p => Grid.GetColumn(p) == 2);
+        var survivingTab = left.Current;
+        right.CloseCurrent();
+        Check(right.TabCount == 0 && right.Visibility == Visibility.Collapsed, "closing last right tab removes empty pane without replacement");
+        Check(ReferenceEquals(left.Current, survivingTab) && left.TabCount == 1, "closing right pane preserves left control and path");
+        left.CloseCurrent();
+        Check(left.TabCount == 1 && ReferenceEquals(left.Current, survivingTab), "last tab across both panes is protected");
+        window.SetTwoPanes(true);
+        var rightTab = right.Current;
+        Check(right.TabCount == 1 && right.Visibility == Visibility.Visible, "explicit two-pane request recreates right tab");
+        left.CloseCurrent();
+        Check(left.TabCount == 0 && left.Visibility == Visibility.Collapsed && Grid.GetColumn(right) == 0, "closing left pane promotes surviving right pane");
+        Check(ReferenceEquals(right.Current, rightTab) && right.SelectedEntries.Length == 0, "pane promotion retains surviving tab without stale selection");
+        CheckHistoryWindow(sample, screenshots);
         window.Close();
+        var saved = StateStore.Load<AppSession>(Path.Combine(root, "ui-profile", "session.json"));
+        Check(saved.Left.Paths.Count == 1 && saved.Right.Paths.Count == 0, "closed pane remains empty in saved session");
+        var restarted = new MainWindow(); restarted.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+        var restartedRoot = (FrameworkElement)restarted.Content;
+        restartedRoot.Measure(new Size(1280, 780)); restartedRoot.Arrange(new Rect(0, 0, 1280, 780)); restartedRoot.UpdateLayout();
+        var restoredPanes = Descendants<PaneView>(restartedRoot).ToArray();
+        Check(restoredPanes.Sum(p => p.TabCount) == 1 && restoredPanes.Single(p => Grid.GetColumn(p) == 2).TabCount == 0, "restart does not reopen closed pane or home tab");
+        restarted.Close();
+    }
+    private static void CheckHistoryWindow(string sample, string screenshots)
+    {
+        var entries = new[]
+        {
+            new HistoryEntry(Guid.NewGuid(), DateTimeOffset.Now, HistoryKind.FolderVisit, HistoryStatus.Viewed, sample),
+            new HistoryEntry(Guid.NewGuid(), DateTimeOffset.Now, HistoryKind.FileOpen, HistoryStatus.Viewed, Path.Combine(sample, "はじめに.txt")),
+            new HistoryEntry(Guid.NewGuid(), DateTimeOffset.Now, HistoryKind.Copy, HistoryStatus.Succeeded, Path.Combine(sample, "ワークメモ.md"), Path.Combine(sample, "copy.md"))
+        };
+        var history = new HistoryWindow(null, entries);
+        var content = (FrameworkElement)history.Content;
+        content.Measure(new Size(980, 640)); content.Arrange(new Rect(0, 0, 980, 640)); content.UpdateLayout();
+        var list = Descendants<ListView>(content).Single(); var filter = Descendants<TextBox>(content).Single();
+        Check(list.Items.Count == 3 && list.SelectedItem is HistoryItem, "history shows selectable rows");
+        filter.Text = "コピー";
+        Check(list.Items.Count == 1 && list.SelectedItem is HistoryItem { Entry.Kind: HistoryKind.Copy }, "history search includes operation kind");
+        filter.Text = "存在しない検索語";
+        Check(list.Items.Count == 0, "history filter handles no matches");
+        filter.Text = "はじめに";
+        Check(list.Items.Count == 1, "history search includes file names");
+        filter.Text = ""; content.UpdateLayout();
+        var image = new RenderTargetBitmap(980, 640, 96, 96, PixelFormats.Pbgra32); image.Render(content);
+        var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+        using (var output = File.Create(Path.Combine(screenshots, "nikotFiler-history-200.png"))) encoder.Save(output);
+        history.Close();
     }
     private static IEnumerable<T> Descendants<T>(DependencyObject element) where T : DependencyObject
     {

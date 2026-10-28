@@ -37,6 +37,10 @@ internal static class Program
             var folderSource = Path.Combine(source, "nested"); Directory.CreateDirectory(folderSource);
             File.WriteAllText(Path.Combine(folderSource, "nested.txt"), "nested"); actions.Copy(folderSource, target);
             Check(File.ReadAllText(Path.Combine(target, "nested", "nested.txt")) == "nested", "recursive copy");
+            var trashSample = Path.Combine(source, "trash-test-only.txt"); File.WriteAllText(trashSample, "temporary test fixture");
+            Task.Run(() => actions.DeleteToRecycleBin(trashSample)).GetAwaiter().GetResult();
+            Check(!File.Exists(trashSample), "worker-thread trash operation removes only the dummy fixture");
+            Check(history.ReadLatest().Any(x => x.Kind == HistoryKind.Delete && x.Status == HistoryStatus.Succeeded), "trash operation is journaled");
             var blocker = Path.Combine(root, "blocker"); File.WriteAllText(blocker, "not a directory");
             var blocked = new FileActions(new HistoryStore(Path.Combine(blocker, "history.jsonl")));
             Expect<IOException>(() => blocked.CreateFolder(target, "blocked"), "unwritable history blocks operation");

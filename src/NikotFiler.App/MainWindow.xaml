@@ -33,7 +33,10 @@
         <Button x:Name="MoveButton" Content="移動" Click="MoveClick"/>
         <Button Content="その他 ▾" Click="MoreClick"/>
       </WrapPanel>
-      <TextBox x:Name="FilterBox" Grid.Column="1" MinWidth="145" Margin="12,2,0,2" ToolTip="表示中のフォルダー内で名前を絞り込み (Ctrl+F)" TextChanged="FilterChanged"/>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,2,0,2">
+        <TextBlock Text="絞り込み" Foreground="{StaticResource Muted}" Margin="0,0,8,0"/>
+        <TextBox x:Name="FilterBox" MinWidth="145" AutomationProperties.Name="名前で絞り込み" ToolTip="表示中のフォルダー内で名前を絞り込み (Ctrl+F)" TextChanged="FilterChanged"/>
+      </StackPanel>
     </Grid>
     <Grid Grid.Row="3" Margin="18,0,18,0">
       <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="192"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>

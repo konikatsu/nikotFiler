@@ -96,10 +96,11 @@ public partial class MainWindow : Window
         void Heading(string text) => Sidebar.Children.Add(new TextBlock { Text = text, Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(11, 16, 0, 8) });
         void Place(string label, string path, string glyph)
         {
-            var content = new StackPanel { Orientation = Orientation.Horizontal };
-            content.Children.Add(new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), Margin = new Thickness(0, 0, 11, 0), Foreground = (Brush)FindResource("Muted") });
+            var content = new DockPanel { LastChildFill = true };
+            var icon = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), Margin = new Thickness(0, 0, 11, 0), Foreground = (Brush)FindResource("Muted") };
+            DockPanel.SetDock(icon, Dock.Left); content.Children.Add(icon);
             content.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis });
-            var button = new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Left, ToolTip = path, Padding = new Thickness(11, 9, 4, 9), Margin = new Thickness(0, 1, 0, 1) };
+            var button = new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Stretch, ToolTip = path, Padding = new Thickness(11, 9, 4, 9), Margin = new Thickness(0, 1, 0, 1) };
             System.Windows.Automation.AutomationProperties.SetName(button, label);
             button.Click += async (_, _) => { if (!_busy) await NavigateAsync(path); };
             Sidebar.Children.Add(button);

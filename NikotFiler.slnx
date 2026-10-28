@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/NikotFiler.Core/NikotFiler.Core.csproj" />
+  <Project Path="src/NikotFiler.App/NikotFiler.App.csproj" />
+  <Project Path="tests/NikotFiler.Tests/NikotFiler.Tests.csproj" />
+</Solution>

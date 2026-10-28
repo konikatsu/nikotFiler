@@ -1,0 +1,14 @@
+**/bin/
+**/obj/
+.tools/
+artifacts/
+.vs/
+*.user
+*.suo
+# Private review context and external CLI logs stay local.
+docs/reviews/
+docs/qa-local/
+.review-input/
+*.jsonl
+settings.json
+session.json

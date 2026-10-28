@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><UseWPF>true</UseWPF><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable></PropertyGroup>
+  <ItemGroup><ProjectReference Include="../../src/NikotFiler.Core/NikotFiler.Core.csproj"/><ProjectReference Include="../../src/NikotFiler.App/NikotFiler.App.csproj"/></ItemGroup>
+</Project>

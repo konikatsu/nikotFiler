@@ -1,0 +1,58 @@
+<Window x:Class="NikotFiler.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="nikotFiler" Width="1280" Height="820" MinWidth="860" MinHeight="560" Loaded="WindowLoaded" Closing="WindowClosing" PreviewKeyDown="WindowKeyDown" PreviewMouseWheel="WindowMouseWheel">
+  <Grid Background="#F5F8F6">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <Border Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="20,9">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <Button x:Name="FontButton" Content="Aa  100%" ToolTip="文字の大きさを変更 (Ctrl+ホイール)" Click="FontClick"/>
+          <Button x:Name="ViewButton" Content="2画面 ▾" ToolTip="表示を切り替える" Click="ViewClick"/>
+          <Button Content="?" ToolTip="使い方" Click="HelpClick"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <Border Background="#16766B" CornerRadius="8" Padding="8,2" Margin="0,0,10,0"><TextBlock Text="n" Foreground="White" FontWeight="Bold"/></Border>
+          <TextBlock Text="nikotFiler" FontWeight="SemiBold"/><TextBlock Text="PREVIEW 0.1" Foreground="{StaticResource Muted}" Margin="12,0,0,0"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+    <Border Grid.Row="1" Background="White" Padding="16,8">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="0,0,8,0">
+          <Button x:Name="BackButton" Content="←" ToolTip="戻る (Alt+←)" Click="BackClick"/>
+          <Button x:Name="ForwardButton" Content="→" ToolTip="進む (Alt+→)" Click="ForwardClick"/>
+          <Button Content="↑" ToolTip="上のフォルダー (Alt+↑)" Click="UpClick"/>
+        </StackPanel>
+        <Button DockPanel.Dock="Right" Content="↻" ToolTip="再読込 (F5)" Click="RefreshClick"/>
+        <TextBox x:Name="Address" ToolTip="フォルダーのパス (Ctrl+L)" KeyDown="AddressKeyDown"/>
+      </DockPanel>
+    </Border>
+    <Grid Grid.Row="2" Margin="18,3,18,9">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <WrapPanel>
+        <Button Content="＋ 新規フォルダー" Style="{StaticResource PrimaryButton}" Click="NewFolderClick"/>
+        <Button x:Name="CopyButton" Content="コピー" Click="CopyClick"/>
+        <Button x:Name="MoveButton" Content="移動" Click="MoveClick"/>
+        <Button Content="その他 ▾" Click="MoreClick"/>
+      </WrapPanel>
+      <TextBox x:Name="FilterBox" Grid.Column="1" MinWidth="145" Margin="12,2,0,2" ToolTip="表示中のフォルダー内で名前を絞り込み (Ctrl+F)" TextChanged="FilterChanged"/>
+    </Grid>
+    <Grid Grid.Row="3" Margin="18,0,18,0">
+      <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="192"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+      <ScrollViewer x:Name="SidebarScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Margin="0,5,12,0">
+        <StackPanel x:Name="Sidebar"/>
+      </ScrollViewer>
+      <Grid Grid.Column="1" x:Name="PaneHost">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DividerColumn" Width="10"/><ColumnDefinition x:Name="RightColumn" Width="*"/></Grid.ColumnDefinitions>
+        <GridSplitter x:Name="Divider" Grid.Column="1" Width="4" HorizontalAlignment="Center" Background="#DEE7E1"/>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="4" Padding="22,10" Background="#F5F8F6">
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock x:Name="Status" Text="準備中…" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="Destination" Grid.Column="1" MaxWidth="400" Margin="20,0,0,0" TextTrimming="CharacterEllipsis" Foreground="{StaticResource Accent}"/>
+      </Grid>
+    </Border>
+    <Border x:Name="ProgressPanel" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Bottom" Margin="25" Padding="16" Background="#E5F2EB" BorderBrush="#82B5A0" BorderThickness="1" CornerRadius="8" Visibility="Collapsed">
+      <DockPanel><Button DockPanel.Dock="Right" Content="中止" Click="CancelClick"/><TextBlock x:Name="ProgressText" Text="処理中…" TextWrapping="Wrap"/></DockPanel>
+    </Border>
+  </Grid>
+</Window>

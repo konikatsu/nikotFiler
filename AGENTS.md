@@ -8,6 +8,8 @@ Distribute a framework-dependent Windows x64 EXE without bundling the .NET runti
 
 Keep the final tab across the whole app open. Closing another pane's last tab must collapse that empty pane without creating a home tab, preserve the surviving controls and selections, and persist that state. History must support search and navigation to the recorded folder or the containing folder of a file; reading history never repeats the recorded file operation.
 
+Pane outlines are enabled by default, including when loading older settings that lack the preference. The view menu must allow toggling them and persist the choice; toggling or changing the active pane must retain the current tabs and selection.
+
 Run the build and executable smoke tests after behavior changes. UI checks use only temporary dummy files. Keep the source publishable and document preview limitations honestly. Public documentation belongs in docs/public; docs/reviews and docs/qa-local are private and ignored.
 
 The user requested publishing a new, simpler prototype to GitHub. Prepare and verify the actual source and distribution before publishing. Keep license selection explicit; do not invent a license grant.

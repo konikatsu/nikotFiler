@@ -54,6 +54,11 @@ internal static class Program
             Check(StateStore.Load<AppSettings>(statePath).TextScale == 200, "font setting persists");
             File.WriteAllText(statePath, "{broken");
             Check(StateStore.Load<AppSettings>(statePath).TextScale == 175, "settings recover backup");
+            var outlineSettingsPath = Path.Combine(root, "outlines.json");
+            File.WriteAllText(outlineSettingsPath, "{\"Version\":1,\"TextScale\":125}");
+            Check(StateStore.Load<AppSettings>(outlineSettingsPath).ShowPaneOutlines, "existing settings default pane outlines to on");
+            StateStore.Save(outlineSettingsPath, new AppSettings { ShowPaneOutlines = false });
+            Check(!StateStore.Load<AppSettings>(outlineSettingsPath).ShowPaneOutlines, "outline off preference survives settings reload");
             Check(AppSettings.ValidScale(double.NaN) == 100 && AppSettings.ValidScale(999) == 250, "invalid font scale repaired");
             var list = FileEntry.ReadDirectory(source, CancellationToken.None);
             CheckHistoryLocations(source, target, input);
@@ -136,6 +141,17 @@ internal static class Program
         var originalPanes = Descendants<PaneView>(content).ToArray();
         var left = originalPanes.Single(p => Grid.GetColumn(p) == 0);
         var right = originalPanes.Single(p => Grid.GetColumn(p) == 2);
+        Check(originalPanes.All(p => p.BorderThickness.Left > 0), "new profile starts with outlines on in both panes");
+        var selectedEntry = left.Current!.Entries.First(x => !x.IsDirectory);
+        left.Current.List.SelectedItem = selectedEntry;
+        var existingList = left.Current.List;
+        window.SetPaneOutlines(false);
+        left.SetActive(true);
+        Check(originalPanes.All(p => p.BorderThickness.Left == 0) && ReferenceEquals(left.Current.List, existingList) && ReferenceEquals(left.Current.List.SelectedItem, selectedEntry), "outline toggle preserves selection and stays off when pane is activated");
+        content.Measure(new Size(1280, 780)); content.Arrange(new Rect(0, 0, 1280, 780)); content.UpdateLayout();
+        var noOutlineImage = new RenderTargetBitmap(1280, 780, 96, 96, PixelFormats.Pbgra32); noOutlineImage.Render(content);
+        var noOutlineEncoder = new PngBitmapEncoder(); noOutlineEncoder.Frames.Add(BitmapFrame.Create(noOutlineImage));
+        using (var output = File.Create(Path.Combine(screenshots, "nikotFiler-outlines-off-200.png"))) noOutlineEncoder.Save(output);
         var survivingTab = left.Current;
         right.CloseCurrent();
         Check(right.TabCount == 0 && right.Visibility == Visibility.Collapsed, "closing last right tab removes empty pane without replacement");
@@ -157,6 +173,9 @@ internal static class Program
         restartedRoot.Measure(new Size(1280, 780)); restartedRoot.Arrange(new Rect(0, 0, 1280, 780)); restartedRoot.UpdateLayout();
         var restoredPanes = Descendants<PaneView>(restartedRoot).ToArray();
         Check(restoredPanes.Sum(p => p.TabCount) == 1 && restoredPanes.Single(p => Grid.GetColumn(p) == 2).TabCount == 0, "restart does not reopen closed pane or home tab");
+        Check(restoredPanes.All(p => p.BorderThickness.Left == 0), "outline off preference is applied after window restart and pane promotion");
+        restarted.SetPaneOutlines(true);
+        Check(restoredPanes.All(p => p.BorderThickness.Left > 0), "outlines can be enabled again after restart");
         restarted.Close();
     }
     private static void CheckHistoryWindow(string sample, string screenshots)

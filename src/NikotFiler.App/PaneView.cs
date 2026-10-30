@@ -18,6 +18,8 @@ public sealed class PaneView : Border
     private readonly Button _newTabButton;
     private readonly List<FolderTab> _folders = [];
     private string _name;
+    private bool _active;
+    private bool _showOutline = true;
     public event Action<PaneView>? Activated;
     public event Action? Changed;
     public event Action<FileEntry>? OpenRequested;
@@ -33,7 +35,7 @@ public sealed class PaneView : Border
     public PaneView(string name)
     {
         _name = name;
-        BorderThickness = new Thickness(1);
+        BorderThickness = new Thickness(2);
         CornerRadius = new CornerRadius(8);
         Background = Brushes.White;
         Padding = new Thickness(7, 0, 7, 7);
@@ -74,9 +76,24 @@ public sealed class PaneView : Border
 
     public void SetActive(bool active)
     {
-        BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(active ? "#78B6A0" : "#E3E9E7"));
+        _active = active;
+        UpdateOutline();
         _label.Text = _name + (active ? "   • 操作中" : "");
         _label.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(active ? "#16766B" : "#74848A"));
+    }
+
+    public void SetOutlineVisible(bool visible)
+    {
+        _showOutline = visible;
+        UpdateOutline();
+    }
+
+    private void UpdateOutline()
+    {
+        BorderThickness = new Thickness(_showOutline ? 2 : 0);
+        BorderBrush = _showOutline
+            ? new SolidColorBrush((Color)ColorConverter.ConvertFromString(_active ? "#16766B" : "#9AAEA3"))
+            : Brushes.Transparent;
     }
 
     public void SetName(string name)

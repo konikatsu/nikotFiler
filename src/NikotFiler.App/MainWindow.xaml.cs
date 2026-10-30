@@ -64,7 +64,7 @@ public partial class MainWindow : Window
         _left.Restore(_session.Left, home); _right.Restore(_session.Right, documents, allowEmpty: !_settings.TwoPanes);
         SetActive(_session.ActivePane == 1 && _settings.TwoPanes ? _right : _left);
         ApplyScale(AppSettings.ValidScale(_settings.TextScale), false);
-        ApplyView(); BuildSidebar();
+        ApplyView(); SetPaneOutlines(_settings.ShowPaneOutlines); BuildSidebar();
         _restoring = false; UpdateChrome();
         Status.Text = "フォルダーを選んで、はじめましょう。  Ctrl＋ホイールで文字を拡大できます";
     }
@@ -230,7 +230,16 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         var sidebar = new MenuItem { Header = "サイドバーを表示", IsCheckable = true, IsChecked = SidebarScroll.Visibility == Visibility.Visible };
         sidebar.Click += (_, _) => { SidebarScroll.Visibility = sidebar.IsChecked ? Visibility.Visible : Visibility.Collapsed; SidebarColumn.Width = sidebar.IsChecked ? new GridLength(192) : new GridLength(0); };
-        menu.Items.Add(sidebar); OpenMenu(ViewButton, menu);
+        menu.Items.Add(sidebar);
+        var outlines = new MenuItem { Header = "枠の縁取りを表示", IsCheckable = true, IsChecked = _settings.ShowPaneOutlines };
+        outlines.Click += (_, _) => SetPaneOutlines(outlines.IsChecked);
+        menu.Items.Add(outlines); OpenMenu(ViewButton, menu);
+    }
+    internal void SetPaneOutlines(bool visible)
+    {
+        _settings.ShowPaneOutlines = visible;
+        _left.SetOutlineVisible(visible); _right.SetOutlineVisible(visible);
+        ScheduleSave();
     }
     internal void SetTwoPanes(bool two)
     {

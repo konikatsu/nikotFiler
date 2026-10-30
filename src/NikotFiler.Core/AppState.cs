@@ -7,6 +7,7 @@ public sealed class AppSettings
     public int Version { get; set; } = 1;
     public double TextScale { get; set; } = 100;
     public bool TwoPanes { get; set; } = true;
+    public bool ShowPaneOutlines { get; set; } = true;
     public double Width { get; set; } = 1280;
     public double Height { get; set; } = 820;
     public bool Maximized { get; set; }

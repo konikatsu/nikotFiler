@@ -5,7 +5,9 @@
     <AssemblyName>nikotFiler</AssemblyName><RootNamespace>NikotFiler.App</RootNamespace>
     <SelfContained>false</SelfContained><UseAppHost>true</UseAppHost>
     <Version>0.1.0</Version><ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/nikotFiler-v1.ico</ApplicationIcon>
     <Description>nikotFiler — シンプルで、読みやすい Windows ファイラー</Description>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../NikotFiler.Core/NikotFiler.Core.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/nikotFiler-v1.png" /></ItemGroup>
 </Project>

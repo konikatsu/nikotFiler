@@ -19,6 +19,11 @@ internal static class Program
             File.WriteAllText(result, folder);
             return 0;
         }
+        if (args is ["--menu-probe", var file] && Environment.GetEnvironmentVariable("NIKOTFILER_TEST_MENU_RESULT") is { } menuResult)
+        {
+            File.WriteAllText(menuResult, file);
+            return 0;
+        }
         var root = Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP") ?? Path.GetTempPath(), "nikotFiler-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try

@@ -195,11 +195,11 @@ internal static class Program
         var otherEntry = left.Current.Entries.First(entry => entry != selectedEntry);
         var selectedRow = (ListViewItem)existingList.ItemContainerGenerator.ContainerFromItem(selectedEntry);
         var otherRow = (ListViewItem)existingList.ItemContainerGenerator.ContainerFromItem(otherEntry);
-        otherRow.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
+        existingList.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
             { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent, Source = otherRow });
         Check(left.SelectedEntries.SequenceEqual(new[] { otherEntry }), "right-clicking another row targets that visible row");
         existingList.SelectedItems.Add(selectedEntry);
-        selectedRow.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
+        existingList.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
             { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent, Source = selectedRow });
         Check(left.SelectedEntries.Length == 2, "right-clicking within a multi-selection keeps the selected group");
         existingList.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)

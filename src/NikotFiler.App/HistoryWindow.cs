@@ -108,7 +108,7 @@ public sealed record HistoryItem(HistoryEntry Entry)
     {
         HistoryKind.FolderVisit => "フォルダー", HistoryKind.FileOpen => "ファイル",
         HistoryKind.Copy => "コピー", HistoryKind.Move => "移動", HistoryKind.Rename => "名前変更",
-        HistoryKind.Delete => "ごみ箱", _ => "フォルダー作成"
+        HistoryKind.Delete => "ごみ箱", HistoryKind.ShellCommand => "Windows メニュー", _ => "フォルダー作成"
     }) + (Entry.Status switch { HistoryStatus.Failed => "（失敗）", HistoryStatus.Started => "（要確認）", _ => "" });
     public string PathText => Entry.SourcePath + (Entry.DestinationPath is { Length: > 0 } destination ? " → " + destination : "");
 }

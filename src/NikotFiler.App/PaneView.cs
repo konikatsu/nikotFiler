@@ -23,7 +23,7 @@ public sealed class PaneView : Border
     public event Action<PaneView>? Activated;
     public event Action? Changed;
     public event Action<FileEntry>? OpenRequested;
-    public event Action? ContextRequested;
+    public event Action<bool>? ContextRequested;
     public event Action<PaneView>? Emptied;
     public Func<bool>? CanCloseTab { get; set; }
     public int TabCount => _folders.Count;
@@ -169,13 +169,18 @@ public sealed class PaneView : Border
         list.ContextMenu = new ContextMenu();
         list.ContextMenuOpening += (_, e) =>
         {
-            e.Handled = true; Activated?.Invoke(this); ContextRequested?.Invoke();
-            if (list.ContextMenu is { } contextMenu) { contextMenu.PlacementTarget = list; contextMenu.IsOpen = true; }
+            e.Handled = true;
+            if (IsWorking) return;
+            Activated?.Invoke(this);
+            ContextRequested?.Invoke(e.CursorLeft < 0);
         };
         list.PreviewMouseRightButtonDown += (_, e) =>
         {
-            if (ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem row && !row.IsSelected)
-            { list.SelectedItems.Clear(); row.IsSelected = true; }
+            if (ItemsControl.ContainerFromElement(list, e.OriginalSource as DependencyObject) is ListViewItem row)
+            {
+                if (!row.IsSelected) { list.SelectedItems.Clear(); row.IsSelected = true; }
+            }
+            else list.SelectedItems.Clear();
         };
         list.AddHandler(GridViewColumnHeader.ClickEvent, new RoutedEventHandler((_, e) =>
         {

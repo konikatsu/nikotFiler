@@ -27,6 +27,7 @@ public sealed class AppSession
     public PaneSession Right { get; set; } = new();
     public int ActivePane { get; set; }
     public List<string> Bookmarks { get; set; } = [];
+    public Dictionary<string, string> BookmarkLabels { get; set; } = [];
 }
 
 public static class StateStore

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Controls;
+using System.Windows.Input;
 using NikotFiler.Core;
 using NikotFiler.App;
 
@@ -11,8 +12,13 @@ internal static class Program
 {
     private static int _checks;
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        if (args is ["--shell-folder", var folder] && Environment.GetEnvironmentVariable("NIKOTFILER_TEST_SHELL_RESULT") is { } result)
+        {
+            File.WriteAllText(result, folder);
+            return 0;
+        }
         var root = Path.Combine(Environment.GetEnvironmentVariable("RUNNER_TEMP") ?? Path.GetTempPath(), "nikotFiler-tests-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         try
@@ -23,7 +29,27 @@ internal static class Program
             var input = Path.Combine(source, "こんにちは.txt"); File.WriteAllText(input, "nikotFiler test");
             actions.Copy(input, target);
             Check(File.ReadAllText(Path.Combine(target, "こんにちは.txt")) == "nikotFiler test", "copy preserves content");
-            Expect<IOException>(() => actions.Copy(input, target), "copy refuses overwrite");
+            var existing = Path.Combine(target, "こんにちは.txt");
+            File.WriteAllText(existing, "existing content");
+            actions.Copy(input, target);
+            actions.Copy(input, target);
+            var firstCopy = Path.Combine(target, "こんにちは - コピー.txt");
+            var secondCopy = Path.Combine(target, "こんにちは - コピー (2).txt");
+            Check(File.ReadAllText(existing) == "existing content" && File.ReadAllText(firstCopy) == "nikotFiler test" &&
+                File.ReadAllText(secondCopy) == "nikotFiler test", "same-name file copies preserve existing files and extensions");
+            Check(history.ReadLatest().Any(x => x.Kind == HistoryKind.Copy && x.Status == HistoryStatus.Succeeded && x.DestinationPath == secondCopy),
+                "history records the renamed copy's destination");
+            var planned = FileActions.PlanCopyDestinations([input], target)[0];
+            File.WriteAllText(planned, "created after confirmation");
+            Expect<IOException>(() => actions.CopyToPath(input, planned), "confirmed copy refuses a newly occupied name");
+            Check(File.ReadAllText(planned) == "created after confirmation", "file added after copy planning is preserved");
+            var sameFolderCopy = FileActions.PlanCopyDestinations([input], source)[0];
+            Check(sameFolderCopy == Path.Combine(source, "こんにちは - コピー.txt"), "copy into the source folder plans a separate file");
+            var reservedName = Path.Combine(source, Path.GetFileName(firstCopy));
+            File.WriteAllText(reservedName, "another selected file");
+            var batch = FileActions.PlanCopyDestinations([input, reservedName], source);
+            Check(batch[0] == Path.Combine(source, Path.GetFileName(secondCopy)) &&
+                batch[1] != batch[0] && batch[1] != reservedName, "batch planning reserves a different destination for each copy");
             Check(File.ReadAllText(input) == "nikotFiler test", "copy leaves source intact");
             actions.Rename(Path.Combine(target, "こんにちは.txt"), "renamed.txt");
             actions.Move(Path.Combine(target, "renamed.txt"), source);
@@ -63,11 +89,15 @@ internal static class Program
             var list = FileEntry.ReadDirectory(source, CancellationToken.None);
             CheckHistoryLocations(source, target, input);
             Check(list[0].IsDirectory && list.Any(x => x.Name == "こんにちは.txt"), "folders sorted first and Unicode paths work");
+            IntegrationChecks.Run(root, Check);
 
             // In-process regression: the selected files MUST be those in the actual
             // current tab, and retained controls must keep a tab's own selection.
             var app = new App(); app.InitializeComponent(); app.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             SynchronizationContext.SetSynchronizationContext(new DispatcherSynchronizationContext());
+            ShellMenuChecks.Run(root, Check);
+            IntegrationChecks.RenderSettings(root, Check);
+            CheckCopyNameDialog(root);
             var pane = new PaneView("test"); pane.AddTab(source);
             PumpUntil(() => pane.Current is { IsLoading: false });
             var first = pane.Current!; first.List.SelectedItem = first.Entries.First(x => x.Name == "こんにちは.txt");
@@ -121,12 +151,28 @@ internal static class Program
         foreach (var name in new[] { "ドキュメント", "プロジェクト", "画像" }) Directory.CreateDirectory(Path.Combine(sample, name));
         File.WriteAllText(Path.Combine(sample, "はじめに.txt"), "nikotFiler preview sample");
         File.WriteAllText(Path.Combine(sample, "ワークメモ.md"), "# sample");
-        App.ConfigureArguments(["--data-dir", Path.Combine(root, "ui-profile"), "--folder", sample]);
+        var profile = Path.Combine(root, "ui-profile");
+        var sessionPath = Path.Combine(profile, "session.json");
+        var bookmarkToRemove = Path.Combine(sample, "画像");
+        StateStore.Save(sessionPath, new AppSession
+        {
+            Bookmarks = [sample, bookmarkToRemove],
+            BookmarkLabels = { [bookmarkToRemove] = "画像の整理" }
+        });
+        App.ConfigureArguments(["--data-dir", profile, "--folder", sample]);
         var window = new MainWindow();
         window.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         var content = (FrameworkElement)window.Content;
         content.Measure(new Size(1280, 780)); content.Arrange(new Rect(0, 0, 1280, 780)); content.UpdateLayout();
         PumpUntil(() => Descendants<PaneView>(content).All(p => p.Current is { IsLoading: false }));
+        var sidebar = (StackPanel)window.FindName("Sidebar");
+        var bookmarks = sidebar.Children.OfType<Button>().Where(button => button.ContextMenu is not null).ToArray();
+        Check(bookmarks.Select(System.Windows.Automation.AutomationProperties.GetName).SequenceEqual(new[] { "サンプル", "画像の整理" }),
+            "bookmarks show their folder name by default or their saved custom label");
+        var removeBookmark = (MenuItem)bookmarks[1].ContextMenu.Items[1];
+        removeBookmark.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Check(!sidebar.Children.Contains(bookmarks[1]) && Directory.Exists(bookmarkToRemove),
+            "removing a bookmark keeps its target folder");
         var screenshots = Path.Combine(Environment.CurrentDirectory, "artifacts", "ui-checks"); Directory.CreateDirectory(screenshots);
         foreach (var scale in new[] { 100, 200 })
         {
@@ -145,6 +191,21 @@ internal static class Program
         var selectedEntry = left.Current!.Entries.First(x => !x.IsDirectory);
         left.Current.List.SelectedItem = selectedEntry;
         var existingList = left.Current.List;
+        existingList.UpdateLayout();
+        var otherEntry = left.Current.Entries.First(entry => entry != selectedEntry);
+        var selectedRow = (ListViewItem)existingList.ItemContainerGenerator.ContainerFromItem(selectedEntry);
+        var otherRow = (ListViewItem)existingList.ItemContainerGenerator.ContainerFromItem(otherEntry);
+        otherRow.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
+            { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent, Source = otherRow });
+        Check(left.SelectedEntries.SequenceEqual(new[] { otherEntry }), "right-clicking another row targets that visible row");
+        existingList.SelectedItems.Add(selectedEntry);
+        selectedRow.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
+            { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent, Source = selectedRow });
+        Check(left.SelectedEntries.Length == 2, "right-clicking within a multi-selection keeps the selected group");
+        existingList.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, MouseButton.Right)
+            { RoutedEvent = UIElement.PreviewMouseRightButtonDownEvent, Source = existingList });
+        Check(left.SelectedEntries.Length == 0, "right-clicking blank list space does not retain a file operation target");
+        existingList.SelectedItem = selectedEntry;
         window.SetPaneOutlines(false);
         left.SetActive(true);
         Check(originalPanes.All(p => p.BorderThickness.Left == 0) && ReferenceEquals(left.Current.List, existingList) && ReferenceEquals(left.Current.List.SelectedItem, selectedEntry), "outline toggle preserves selection and stays off when pane is activated");
@@ -166,7 +227,9 @@ internal static class Program
         Check(ReferenceEquals(right.Current, rightTab) && right.SelectedEntries.Length == 0, "pane promotion retains surviving tab without stale selection");
         CheckHistoryWindow(sample, screenshots);
         window.Close();
-        var saved = StateStore.Load<AppSession>(Path.Combine(root, "ui-profile", "session.json"));
+        var saved = StateStore.Load<AppSession>(sessionPath);
+        Check(saved.Bookmarks.SequenceEqual(new[] { sample }) && !saved.BookmarkLabels.ContainsKey(bookmarkToRemove),
+            "removing a bookmark also removes its saved label and keeps the other bookmark");
         Check(saved.Left.Paths.Count == 1 && saved.Right.Paths.Count == 0, "closed pane remains empty in saved session");
         var restarted = new MainWindow(); restarted.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
         var restartedRoot = (FrameworkElement)restarted.Content;
@@ -177,6 +240,16 @@ internal static class Program
         restarted.SetPaneOutlines(true);
         Check(restoredPanes.All(p => p.BorderThickness.Left > 0), "outlines can be enabled again after restart");
         restarted.Close();
+        var requested = Path.Combine(sample, "プロジェクト");
+        App.ConfigureArguments(["--data-dir", profile, "--shell-folder", requested + @"\."]);
+        var external = new MainWindow();
+        external.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+        var externalRoot = (FrameworkElement)external.Content;
+        externalRoot.Measure(new Size(1280, 780)); externalRoot.Arrange(new Rect(0, 0, 1280, 780)); externalRoot.UpdateLayout();
+        var externalPanes = Descendants<PaneView>(externalRoot).ToArray();
+        Check(externalPanes.Sum(pane => pane.TabCount) == 2 && externalPanes.Single(pane => Grid.GetColumn(pane) == 0).Current?.Path == requested,
+            "a shell folder request opens a selected tab while keeping the previously saved tabs");
+        external.Close();
     }
     private static void CheckHistoryWindow(string sample, string screenshots)
     {
@@ -203,6 +276,61 @@ internal static class Program
         using (var output = File.Create(Path.Combine(screenshots, "nikotFiler-history-200.png"))) encoder.Save(output);
         history.Close();
     }
+    private static void CheckCopyNameDialog(string root)
+    {
+        var first = Path.Combine(root, "copy-dialog", "first");
+        var second = Path.Combine(root, "copy-dialog", "second");
+        var target = Path.Combine(root, "copy-dialog", "target");
+        foreach (var directory in new[] { first, second, target }) Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(first, "報告書.xlsx"), "first dummy file");
+        File.WriteAllText(Path.Combine(second, "報告書.xlsx"), "second dummy file");
+        var existing = Path.Combine(target, "報告書.xlsx");
+        File.WriteAllText(existing, "existing dummy file");
+        var sources = new[] { FileEntry.ReadDirectory(first, default).Single(), FileEntry.ReadDirectory(second, default).Single() };
+        var proposed = FileActions.PlanCopyDestinations(sources.Select(entry => entry.FullPath).ToArray(), target);
+        var dialog = new CopyNameDialog(null, sources, target, proposed);
+        var content = (FrameworkElement)dialog.Content;
+        content.Measure(new Size(720, 680)); content.Arrange(new Rect(0, 0, 720, 680)); content.UpdateLayout();
+        var inputs = Descendants<TextBox>(content).ToArray();
+        Check(inputs.Select(input => input.Text).SequenceEqual(new[] { "報告書 - コピー.xlsx", "報告書 - コピー (2).xlsx" }),
+            "conflicting copies have editable numbered name suggestions");
+        dialog.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+        Check(inputs[0].SelectedText == "報告書 - コピー", "copy name editing initially keeps the extension outside the selection");
+        Check(dialog.ValidateDestinations(), "suggested copy names can be accepted directly");
+        foreach (var invalid in new[] { "", "../escape.xlsx", "CON.xlsx", "報告書.xlsx" })
+        {
+            inputs[0].Text = invalid;
+            Check(!dialog.ValidateDestinations(), "copy name dialog rejects empty, invalid, reserved, or occupied names");
+        }
+        inputs[0].Text = "確認用.xlsx";
+        inputs[1].Text = "確認用.xlsx";
+        Check(!dialog.ValidateDestinations(), "copy name dialog rejects names duplicated within the batch");
+        Check(File.ReadAllText(existing) == "existing dummy file" && Directory.GetFiles(target).Length == 1,
+            "copy name entry and validation perform no file operations");
+        inputs[1].Text = "提出用.xlsx";
+        Check(dialog.ValidateDestinations(), "custom copy names are accepted after errors are corrected");
+
+        var screenshots = Path.Combine(Environment.CurrentDirectory, "artifacts", "ui-checks");
+        Directory.CreateDirectory(screenshots);
+        foreach (var scale in new[] { 100, 200 })
+        {
+            Application.Current.Resources["TextSize"] = 14d * scale / 100;
+            content.Measure(new Size(720, 680)); content.Arrange(new Rect(0, 0, 720, 680)); content.UpdateLayout();
+            var image = new RenderTargetBitmap(720, 680, 96, 96, PixelFormats.Pbgra32);
+            image.Render(content);
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(image));
+            using var output = File.Create(Path.Combine(screenshots, $"nikotFiler-copy-name-{scale}.png"));
+            encoder.Save(output);
+        }
+        Application.Current.Resources["TextSize"] = 14d;
+        var actions = new FileActions(new HistoryStore(Path.Combine(root, "copy-dialog", "history.jsonl")));
+        for (var i = 0; i < sources.Length; i++) actions.CopyToPath(sources[i].FullPath, dialog.DestinationPaths[i]);
+        Check(File.ReadAllText(Path.Combine(target, "確認用.xlsx")) == "first dummy file" &&
+            File.ReadAllText(Path.Combine(target, "提出用.xlsx")) == "second dummy file" &&
+            File.ReadAllText(existing) == "existing dummy file", "confirmed custom names are used for the copied files");
+        dialog.Close();
+    }
+
     private static IEnumerable<T> Descendants<T>(DependencyObject element) where T : DependencyObject
     {
         for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)

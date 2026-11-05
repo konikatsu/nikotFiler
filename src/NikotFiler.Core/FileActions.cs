@@ -4,11 +4,48 @@ namespace NikotFiler.Core;
 
 public sealed class FileActions(HistoryStore history)
 {
-    public void Copy(string source, string destinationDirectory, CancellationToken cancellationToken = default, IProgress<string>? progress = null)
+    public static string[] PlanCopyDestinations(IReadOnlyList<string> sources, string destinationDirectory)
+    {
+        destinationDirectory = ExistingDirectory(destinationDirectory);
+        var destinations = sources.Select(source => TargetPath(Path.GetFullPath(source), destinationDirectory)).ToArray();
+        var originalNames = new HashSet<string>(destinations, StringComparer.OrdinalIgnoreCase);
+        var directories = sources.Select(Directory.Exists).ToArray();
+        var assigned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < destinations.Length; i++)
+            if (directories[i]) assigned.Add(destinations[i]);
+
+        for (var i = 0; i < destinations.Length; i++)
+        {
+            if (directories[i]) continue;
+            var destination = destinations[i];
+            if (!Path.Exists(destination) && assigned.Add(destination)) continue;
+
+            var stem = Path.GetFileNameWithoutExtension(destination);
+            var extension = Path.GetExtension(destination);
+            for (var number = 1; ; number++)
+            {
+                var suffix = number == 1 ? " - コピー" : $" - コピー ({number})";
+                var stemLimit = 255 - suffix.Length - extension.Length;
+                if (stemLimit < 0) throw new IOException("拡張子が長すぎてコピー名を作成できません。");
+                var stemLength = Math.Min(stem.Length, stemLimit);
+                if (stemLength > 0 && char.IsHighSurrogate(stem[stemLength - 1])) stemLength--;
+                var candidate = Path.Combine(destinationDirectory, stem[..stemLength] + suffix + extension);
+                if (originalNames.Contains(candidate) || Path.Exists(candidate) || !assigned.Add(candidate)) continue;
+                destinations[i] = candidate;
+                break;
+            }
+        }
+        return destinations;
+    }
+
+    public void Copy(string source, string destinationDirectory, CancellationToken cancellationToken = default, IProgress<string>? progress = null) =>
+        CopyToPath(source, PlanCopyDestinations([source], destinationDirectory)[0], cancellationToken, progress);
+
+    public void CopyToPath(string source, string destination, CancellationToken cancellationToken = default, IProgress<string>? progress = null)
     {
         source = ExistingItem(source);
-        destinationDirectory = ExistingDirectory(destinationDirectory);
-        var destination = TargetPath(source, destinationDirectory);
+        destination = Path.GetFullPath(destination);
+        ExistingDirectory(Path.GetDirectoryName(destination) ?? destination);
         EnsureTargetAvailable(source, destination);
         history.ExecuteLogged(HistoryKind.Copy, source, destination, () =>
         {
@@ -93,7 +130,7 @@ public sealed class FileActions(HistoryStore history)
     private static void EnsureTargetAvailable(string source, string destination)
     {
         var fullDestination = Path.GetFullPath(destination);
-        if (Path.Exists(fullDestination)) throw new IOException("移動先に同名の項目があります。上書きはしません。");
+        if (Path.Exists(fullDestination)) throw new IOException("指定した名前はすでに使われています。上書きはしません。");
         if (Directory.Exists(source) &&
             fullDestination.StartsWith(Path.TrimEndingDirectorySeparator(source) + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))

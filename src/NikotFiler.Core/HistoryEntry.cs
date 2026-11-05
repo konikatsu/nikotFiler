@@ -8,7 +8,8 @@ public enum HistoryKind
     Move,
     Rename,
     Delete,
-    CreateFolder
+    CreateFolder,
+    ShellCommand
 }
 
 public enum HistoryStatus

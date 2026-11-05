@@ -26,6 +26,8 @@ public partial class MainWindow : Window
     private bool _busy;
     private bool _updating;
     private bool _historyOpening;
+    private bool _contextMenuOpen;
+    private readonly Queue<string> _pendingFolders = new();
     private string SettingsPath => Path.Combine(App.DataDirectory, "settings.json");
     private string SessionPath => Path.Combine(App.DataDirectory, "session.json");
     private PaneView Other => ReferenceEquals(_active, _left) ? _right : _left;
@@ -47,7 +49,7 @@ public partial class MainWindow : Window
             pane.Activated += SetActive;
             pane.Changed += () => { UpdateChrome(); ScheduleSave(); };
             pane.OpenRequested += entry => _ = OpenAsync(entry);
-            pane.ContextRequested += () => { if (pane.Current is { } tab) tab.List.ContextMenu = BuildFileMenu(); };
+            pane.ContextRequested += keyboard => ShowFileContext(pane, keyboard);
             pane.CanCloseTab = () => _left.TabCount + _right.TabCount > 1;
             pane.Emptied += CloseEmptyPane;
         }
@@ -66,6 +68,7 @@ public partial class MainWindow : Window
         ApplyScale(AppSettings.ValidScale(_settings.TextScale), false);
         ApplyView(); SetPaneOutlines(_settings.ShowPaneOutlines); BuildSidebar();
         _restoring = false; UpdateChrome();
+        if (App.InitialPath is { } initialPath) OpenFolder(initialPath);
         Status.Text = "フォルダーを選んで、はじめましょう。  Ctrl＋ホイールで文字を拡大できます";
     }
 
@@ -74,6 +77,26 @@ public partial class MainWindow : Window
         if (pane.TabCount == 0) return;
         if (!_settings.TwoPanes && ReferenceEquals(pane, _right)) return;
         _active = pane; _left.SetActive(pane == _left); _right.SetActive(pane == _right); UpdateChrome();
+    }
+
+    internal void OpenFolder(string path)
+    {
+        if (_busy || _contextMenuOpen) { _pendingFolders.Enqueue(path); return; }
+        if (!string.Equals(_active.CurrentPath, path, StringComparison.OrdinalIgnoreCase)) _active.AddTab(path);
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Activate();
+    }
+
+    private void SettingsClick(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        try
+        {
+            using var classes = Registry.CurrentUser.CreateSubKey(@"Software\Classes");
+            var registration = new DefaultFileManager(classes, Path.Combine(App.UserDataDirectory, "integration", "default-filer-backup.json"));
+            new SettingsWindow(this, registration, App.UserDataDirectory).ShowDialog();
+        }
+        catch (Exception ex) { ShowError("設定を開けませんでした", ex.Message); }
     }
     private void CloseEmptyPane(PaneView pane)
     {
@@ -113,7 +136,7 @@ public partial class MainWindow : Window
     {
         Sidebar.Children.Clear();
         void Heading(string text) => Sidebar.Children.Add(new TextBlock { Text = text, Foreground = (Brush)FindResource("Muted"), Margin = new Thickness(11, 16, 0, 8) });
-        void Place(string label, string path, string glyph)
+        void Place(string label, string path, string glyph, ContextMenu? menu = null)
         {
             var content = new DockPanel { LastChildFill = true };
             var icon = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe MDL2 Assets"), Margin = new Thickness(0, 0, 11, 0), Foreground = (Brush)FindResource("Muted") };
@@ -121,6 +144,7 @@ public partial class MainWindow : Window
             content.Children.Add(new TextBlock { Text = label, TextTrimming = TextTrimming.CharacterEllipsis });
             var button = new Button { Content = content, HorizontalContentAlignment = HorizontalAlignment.Stretch, ToolTip = path, Padding = new Thickness(11, 9, 4, 9), Margin = new Thickness(0, 1, 0, 1) };
             System.Windows.Automation.AutomationProperties.SetName(button, label);
+            button.ContextMenu = menu;
             button.Click += async (_, _) => { if (!_busy) await NavigateAsync(path); };
             Sidebar.Children.Add(button);
         }
@@ -133,7 +157,13 @@ public partial class MainWindow : Window
         }
         Place("ダウンロード", Path.Combine(home, "Downloads"), "\uE896");
         Heading("ブックマーク");
-        foreach (var path in _session.Bookmarks ?? []) if (!string.IsNullOrWhiteSpace(path)) Place(PaneView.FolderName(path), path, "\uE734");
+        foreach (var path in _session.Bookmarks ?? [])
+        {
+            if (string.IsNullOrWhiteSpace(path)) continue;
+            var label = _session.BookmarkLabels?.GetValueOrDefault(path);
+            if (string.IsNullOrWhiteSpace(label)) label = PaneView.FolderName(path);
+            Place(label, path, "\uE734", BuildBookmarkMenu(path, label));
+        }
         var add = new Button { Content = "＋ 現在地を追加", Foreground = (Brush)FindResource("Accent") };
         add.Click += (_, _) =>
         {
@@ -146,6 +176,33 @@ public partial class MainWindow : Window
         foreach (var drive in DriveInfo.GetDrives()) Place(drive.Name, drive.RootDirectory.FullName, "\uEDA2");
         var history = new Button { Content = "閲覧・操作履歴", ToolTip = "履歴からフォルダーを開く (Ctrl+H)", Margin = new Thickness(0, 20, 0, 5) };
         history.Click += (_, _) => ShowHistory(); Sidebar.Children.Add(history);
+    }
+
+    private ContextMenu BuildBookmarkMenu(string path, string label)
+    {
+        var menu = new ContextMenu();
+        var rename = new MenuItem { Header = "表示名を変更…" };
+        rename.Click += (_, _) =>
+        {
+            if (_busy) return;
+            var dialog = new ActionDialog(this, "ブックマークの表示名", path, "変更する", label);
+            if (dialog.ShowDialog() != true) return;
+            _session.BookmarkLabels ??= [];
+            _session.BookmarkLabels[path] = dialog.Value;
+            BuildSidebar();
+            ScheduleSave();
+        };
+        var remove = new MenuItem { Header = "ブックマークを削除" };
+        remove.Click += (_, _) =>
+        {
+            if (_busy || !_session.Bookmarks.Remove(path)) return;
+            _session.BookmarkLabels?.Remove(path);
+            BuildSidebar();
+            ScheduleSave();
+        };
+        menu.Items.Add(rename);
+        menu.Items.Add(remove);
+        return menu;
     }
 
     private async Task NavigateAsync(string path)
@@ -257,6 +314,63 @@ public partial class MainWindow : Window
     }
     private static void OpenMenu(FrameworkElement target, ContextMenu menu) { menu.PlacementTarget = target; menu.IsOpen = true; }
 
+    private async void ShowFileContext(PaneView pane, bool keyboard)
+    {
+        if (_busy || _contextMenuOpen || pane.Current is not { } tab) return;
+        SetActive(pane);
+        var selected = pane.SelectedEntries;
+        if (selected.Length == 0) { OpenMenu(tab.List, BuildFileMenu()); return; }
+        _contextMenuOpen = true;
+        try
+        {
+            using var menu = new WindowsContextMenu(selected.Select(entry => entry.FullPath).ToArray());
+            var anchor = keyboard && tab.List.ItemContainerGenerator.ContainerFromItem(selected[0]) is FrameworkElement row ? row : tab.List;
+            var position = keyboard ? anchor.PointToScreen(new Point(8, anchor.ActualHeight)) : PointToScreen(Mouse.GetPosition(this));
+            var command = menu.Show(this, position);
+            if (command == 0) return;
+            if (!ReferenceEquals(pane, _active) || !ReferenceEquals(pane.Current, tab) ||
+                !selected.SequenceEqual(pane.SelectedEntries)) return;
+            if (command == WindowsContextMenu.NewTabCommand)
+            {
+                if (selected is [{ IsDirectory: true } folder]) pane.AddTab(folder.FullPath);
+                return;
+            }
+            var verb = menu.GetVerb(command);
+            switch (verb)
+            {
+                case "copy": PutClipboard(false); return;
+                case "cut": PutClipboard(true); return;
+                case "paste": await PasteAsync(selected is [{ IsDirectory: true } destination] ? destination.FullPath : pane.CurrentPath); return;
+                case "delete": await DeleteAsync(); return;
+                case "rename": Rename(); return;
+                case "open":
+                case "explore":
+                    foreach (var entry in selected)
+                    {
+                        if (selected.Length > 1 && entry.IsDirectory) pane.AddTab(entry.FullPath);
+                        else await OpenAsync(entry);
+                    }
+                    return;
+            }
+            if (verb is not ("properties" or "openas" or "edit"))
+            {
+                var label = menu.GetLabel(command);
+                if (label.Length == 0) label = "Windows の操作";
+                var description = string.Join("\n", selected.Select(entry => entry.FullPath));
+                var confirm = new ActionDialog(this, label, "対象\n" + description, "実行する");
+                if (confirm.ShowDialog() != true) return;
+            }
+            _history.ExecuteLogged(HistoryKind.ShellCommand, selected[0].FullPath, null, () => menu.Invoke(this, command));
+            if (verb is not ("properties" or "openas" or "edit")) await Task.WhenAll(_left.RefreshAsync(), _right.RefreshAsync());
+        }
+        catch (Exception ex) { ShowError("右クリックの操作を実行できませんでした", ex.Message); }
+        finally
+        {
+            _contextMenuOpen = false;
+            if (!_busy) while (_pendingFolders.TryDequeue(out var path)) OpenFolder(path);
+        }
+    }
+
     private ContextMenu BuildFileMenu()
     {
         var menu = new ContextMenu();
@@ -316,20 +430,50 @@ public partial class MainWindow : Window
     private async Task RunFilesAsync(FileEntry[] selected, string? destination, string action)
     {
         if (_busy || selected.Length == 0) return;
-        var names = string.Join("\n", selected.Take(8).Select(x => "・" + x.Name));
-        if (selected.Length > 8) names += $"\nほか {selected.Length - 8} 件";
+        string[]? copyDestinations = null;
+        if (destination is not null && action == "コピー")
+        {
+            try { copyDestinations = FileActions.PlanCopyDestinations(selected.Select(entry => entry.FullPath).ToArray(), destination); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                ShowError("コピー先を確認できませんでした", ex.Message);
+                return;
+            }
+        }
+
+        var preview = new List<string>();
+        for (var i = 0; i < selected.Length; i++)
+        {
+            var name = selected[i].Name;
+            var targetName = copyDestinations is null ? name : Path.GetFileName(copyDestinations[i]);
+            if (name != targetName) preview.Add($"・{name} → {targetName}");
+            else if (i < 8) preview.Add("・" + name);
+        }
+        if (selected.Length > preview.Count) preview.Add($"ほか {selected.Length - preview.Count} 件");
+        var names = string.Join("\n", preview);
         var description = $"{selected.Length} 件を{action}操作です。\n\n{names}\n\n元: {Path.GetDirectoryName(selected[0].FullPath)}";
         description += destination is null ? "\n\nごみ箱から元に戻せます。" : "\n先: " + destination + "\n\n同名の項目は上書きしません。";
-        var dialog = new ActionDialog(this, action, description, action);
-        if (dialog.ShowDialog() != true) return;
+        if (copyDestinations is not null && selected.Where((entry, i) => entry.Name != Path.GetFileName(copyDestinations[i])).Any())
+        {
+            var dialog = new CopyNameDialog(this, selected, destination!, copyDestinations);
+            if (dialog.ShowDialog() != true) return;
+            copyDestinations = dialog.DestinationPaths;
+        }
+        else
+        {
+            var dialog = new ActionDialog(this, action, description, action);
+            if (dialog.ShowDialog() != true) return;
+        }
         _operation = new CancellationTokenSource(); var cancellation = _operation.Token;
         SetBusy(true);
         var completed = 0; var failures = new List<string>(); var cancelled = false;
         var progress = new Progress<string>(name => ProgressText.Text = $"{action}中 {completed}/{selected.Length} 件  ·  {name}");
         try
         {
-            foreach (var entry in selected)
+            for (var i = 0; i < selected.Length; i++)
             {
+                var entry = selected[i];
+                var copyDestination = copyDestinations?[i];
                 cancellation.ThrowIfCancellationRequested();
                 ProgressText.Text = $"{action}中 {completed}/{selected.Length} 件  ·  {entry.Name}";
                 try
@@ -337,9 +481,9 @@ public partial class MainWindow : Window
                     await Task.Run(() =>
                     {
                         cancellation.ThrowIfCancellationRequested();
-                        if (destination is null) _actions.DeleteToRecycleBin(entry.FullPath);
-                        else if (action == "移動") _actions.Move(entry.FullPath, destination);
-                        else _actions.Copy(entry.FullPath, destination, cancellation, progress);
+                        if (copyDestination is not null) _actions.CopyToPath(entry.FullPath, copyDestination, cancellation, progress);
+                        else if (destination is not null) _actions.Move(entry.FullPath, destination);
+                        else _actions.DeleteToRecycleBin(entry.FullPath);
                     }, cancellation);
                     completed++;
                 }
@@ -363,6 +507,7 @@ public partial class MainWindow : Window
         _left.IsWorking = _right.IsWorking = busy;
         _left.IsEnabled = _right.IsEnabled = Address.IsEnabled = Sidebar.IsEnabled = FilterBox.IsEnabled = !busy;
         ProgressPanel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed; UpdateChrome();
+        if (!busy) while (_pendingFolders.TryDequeue(out var path)) OpenFolder(path);
     }
     private void CancelClick(object sender, RoutedEventArgs e) { _operation?.Cancel(); ProgressText.Text = "中止しています…"; }
 
@@ -378,7 +523,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { ShowError("クリップボードにコピーできませんでした", ex.Message); }
     }
-    private async Task PasteAsync()
+    private async Task PasteAsync(string? destination = null)
     {
         if (_busy) return;
         try
@@ -386,7 +531,7 @@ public partial class MainWindow : Window
             if (!Clipboard.ContainsFileDropList()) { Status.Text = "貼り付けるファイルがありません"; return; }
             var entries = Clipboard.GetFileDropList().Cast<string>().Select(path => new FileEntry(path, Path.GetFileName(path), Directory.Exists(path), null, DateTime.Now)).ToArray();
             var move = Clipboard.GetData("Preferred DropEffect") is MemoryStream stream && BitConverter.ToInt32(stream.ToArray()) == 2;
-            await RunFilesAsync(entries, _active.CurrentPath, move ? "移動" : "コピー");
+            await RunFilesAsync(entries, destination ?? _active.CurrentPath, move ? "移動" : "コピー");
         }
         catch (Exception ex) { ShowError("貼り付けできませんでした", ex.Message); }
     }

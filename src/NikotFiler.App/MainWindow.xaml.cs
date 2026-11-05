@@ -507,7 +507,7 @@ public partial class MainWindow : Window
         _left.IsWorking = _right.IsWorking = busy;
         _left.IsEnabled = _right.IsEnabled = Address.IsEnabled = Sidebar.IsEnabled = FilterBox.IsEnabled = !busy;
         ProgressPanel.Visibility = busy ? Visibility.Visible : Visibility.Collapsed; UpdateChrome();
-        if (!busy) while (_pendingFolders.TryDequeue(out var path)) OpenFolder(path);
+        if (!busy && !_contextMenuOpen) while (_pendingFolders.TryDequeue(out var path)) OpenFolder(path);
     }
     private void CancelClick(object sender, RoutedEventArgs e) { _operation?.Cancel(); ProgressText.Text = "中止しています…"; }
 
